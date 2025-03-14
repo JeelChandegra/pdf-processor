@@ -7,3 +7,4 @@ nltk==3.8.1
 scikit-learn==1.4.1.post1
 spacy==3.7.4
 networkx==3.2.1
+cohere==4.51

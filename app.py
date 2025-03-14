@@ -20,6 +20,8 @@ from sumy.summarizers.lsa import LsaSummarizer
 from sumy.summarizers.luhn import LuhnSummarizer
 from sumy.nlp.stemmers import Stemmer
 from sumy.utils import get_stop_words
+import cohere
+from dotenv import load_dotenv
 
 # Download required NLTK data
 try:
@@ -31,6 +33,16 @@ except LookupError:
 
 # Load spaCy model
 nlp = spacy.load('en_core_web_sm')
+
+# Load environment variables
+load_dotenv()
+
+# Initialize Cohere client
+try:
+    co = cohere.Client(os.getenv('COHERE_API_KEY'))
+except Exception as e:
+    print(f"Warning: Cohere initialization failed - {e}")
+    co = None
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
@@ -212,81 +224,84 @@ def format_summary(sentences, key_phrases=None, entities=None):
     
     return formatted_summary
 
-def get_advanced_summary(text, sentences_count=10):
-    try:
-        # Preprocess text
-        original_sentences, processed_sentences = preprocess_text(text)
-        
-        if len(original_sentences) <= sentences_count:
-            return format_summary(original_sentences)
-        
-        # Extract key phrases
-        key_phrases = extract_key_phrases(processed_sentences, original_sentences)
-        
-        # Analyze text with spaCy
-        entities, noun_phrases, main_verbs = analyze_text_with_spacy(text)
-        
-        # Build similarity graph
-        centrality_scores = build_similarity_graph(processed_sentences)
-        
-        # Calculate importance scores for each sentence
-        importance_scores = {}
-        total_sentences = len(original_sentences)
-        
-        for i, sentence in enumerate(original_sentences):
-            # Calculate position score (higher for intro and conclusion)
-            pos_score = 1.0
-            if i < total_sentences * 0.2:  # First 20% of sentences
-                pos_score = 1.2
-            elif i > total_sentences * 0.8:  # Last 20% of sentences
-                pos_score = 1.1
-            
-            # Combine multiple scoring methods
-            spacy_score = calculate_sentence_importance(sentence, entities, noun_phrases, main_verbs)
-            graph_score = centrality_scores[i]
-            
-            # Weighted combination of scores
-            importance_scores[i] = (0.45 * spacy_score + 0.35 * graph_score + 0.20 * pos_score)
-        
-        # Get sentences with highest importance scores
-        selected_indices = sorted(importance_scores.items(), key=lambda x: x[1], reverse=True)[:sentences_count]
-        selected_indices = [idx for idx, _ in selected_indices]
-        
-        # Sort indices to maintain original order and ensure coherence
-        selected_indices.sort()
-        
-        # Get final sentences
-        final_sentences = [original_sentences[i] for i in selected_indices]
-        
-        # Format the summary with key phrases and entities
-        summary = format_summary(final_sentences, key_phrases, entities[:5])
-        
-        if not summary or len(summary.split()) < 50:  # Fallback if summary is too short
-            parser = PlaintextParser.from_string(text, Tokenizer("english"))
-            
-            # Try multiple summarizers and combine their results
-            summarizers = [
-                (LexRankSummarizer(), 0.4),
-                (LsaSummarizer(), 0.3),
-                (LuhnSummarizer(), 0.3)
-            ]
-            
-            combined_scores = defaultdict(float)
-            for summarizer, weight in summarizers:
-                summary = summarizer(parser.document, sentences_count)
-                for i, sentence in enumerate(summary):
-                    combined_scores[str(sentence)] += weight * (1.0 / (i + 1))
-            
-            top_sentences = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)[:sentences_count]
-            final_sentences = [sent for sent, _ in top_sentences]
-            
-            summary = format_summary(final_sentences)
-        
-        return summary if summary else "Could not generate summary."
+def get_cohere_summary(text, max_tokens=300):
+    """Generate a summary using Cohere's API"""
+    if not co:
+        return "Cohere API not configured. Please check your API key."
     
+    try:
+        # Generate summary using Cohere
+        response = co.summarize(
+            text=text,
+            length='medium',
+            format='paragraph',
+            model='command',
+            additional_command='Focus on the main points and key findings',
+            temperature=0.3
+        )
+        return response.summary
     except Exception as e:
-        print(f"Error in get_advanced_summary: {str(e)}")
-        return "Could not generate summary. Please try again with a different PDF."
+        print(f"Cohere summarization error: {e}")
+        return None
+
+def get_advanced_summary(text, sentences_count=10):
+    """Get comprehensive summary using multiple methods"""
+    # Clean and preprocess the text
+    sentences, processed_sentences = preprocess_text(text)
+    
+    if len(sentences) <= sentences_count:
+        return text
+    
+    # Get Cohere summary
+    cohere_summary = get_cohere_summary(text)
+    
+    # Get traditional summarization results
+    entities, noun_phrases, main_verbs = analyze_text_with_spacy(text)
+    key_phrases = extract_key_phrases(processed_sentences, sentences)
+    
+    # Calculate sentence importance scores
+    importance_scores = []
+    for i, sentence in enumerate(sentences):
+        score = calculate_sentence_importance(sentence, entities, noun_phrases, main_verbs)
+        importance_scores.append((i, score))
+    
+    # Build similarity graph and get centrality scores
+    centrality_scores = build_similarity_graph(processed_sentences)
+    
+    # Combine scores
+    final_scores = []
+    for i, (_, imp_score) in enumerate(importance_scores):
+        cent_score = centrality_scores[i]
+        combined_score = 0.6 * imp_score + 0.4 * cent_score
+        final_scores.append((i, combined_score))
+    
+    # Sort sentences by score and select top ones
+    top_sentences = sorted(final_scores, key=lambda x: x[1], reverse=True)[:sentences_count]
+    top_sentences = sorted(top_sentences, key=lambda x: x[0])  # Restore original order
+    
+    # Create summary using traditional methods
+    traditional_summary = " ".join([sentences[i] for i, _ in top_sentences])
+    
+    # Format the final summary
+    formatted_summary = format_summary(sentences, key_phrases, entities)
+    
+    # Combine both summaries if Cohere is available
+    if cohere_summary:
+        final_summary = (
+            "AI-Generated Summary (Cohere):\n"
+            f"{cohere_summary}\n\n"
+            "Traditional Analysis Summary:\n"
+            f"{traditional_summary}\n\n"
+            f"{formatted_summary}"
+        )
+    else:
+        final_summary = (
+            "Summary:\n"
+            f"{traditional_summary}\n\n"
+            f"{formatted_summary}"
+        )
+    
+    return final_summary
 
 @app.route('/')
 def index():
