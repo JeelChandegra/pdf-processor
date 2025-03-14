@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart PDF Summarizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        .drop-zone {
+            transition: all 0.3s ease;
+        }
+        .drop-zone:hover {
+            transform: translateY(-2px);
+        }
+        .summary-container {
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        .animate-pulse-slow {
+            animation: pulse 2s infinite;
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50">
+    <div class="container mx-auto px-4 py-12">
+        <div class="max-w-4xl mx-auto">
+            <!-- Header -->
+            <div class="text-center mb-12">
+                <h1 class="text-4xl font-bold text-gray-900 mb-4">Smart PDF Summarizer</h1>
+                <p class="text-lg text-gray-600">Upload your PDF and get an intelligent summary in seconds</p>
+            </div>
+            
+            <!-- Main Content -->
+            <div class="bg-white rounded-2xl shadow-xl p-8">
+                <!-- Upload Section -->
+                <div class="mb-8">
+                    <div id="dropzone" class="drop-zone border-2 border-dashed border-blue-300 rounded-xl p-10 text-center cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-all duration-300">
+                        <input type="file" id="fileInput" class="hidden" accept=".pdf">
+                        <div class="text-gray-600">
+                            <svg class="mx-auto h-16 w-16 mb-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                            </svg>
+                            <p class="text-xl font-medium mb-2">Drag and drop your PDF here</p>
+                            <p class="text-sm text-gray-500">or click to select a file</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- File Info -->
+                <div id="fileInfo" class="hidden mb-6">
+                    <div class="flex items-center p-4 bg-blue-50 rounded-lg">
+                        <svg class="h-6 w-6 text-blue-500 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                        </svg>
+                        <span id="fileName" class="text-blue-700 font-medium"></span>
+                    </div>
+                </div>
+
+                <!-- Summarize Button -->
+                <button id="summarizeBtn" class="hidden w-full bg-blue-600 text-white py-3 px-6 rounded-lg font-medium hover:bg-blue-700 transform transition-all duration-300 hover:scale-[1.02] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+                    Generate Summary
+                </button>
+
+                <!-- Loading State -->
+                <div id="loadingSpinner" class="hidden">
+                    <div class="flex flex-col items-center justify-center py-8">
+                        <div class="animate-pulse-slow">
+                            <svg class="w-16 h-16 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            </svg>
+                        </div>
+                        <p class="mt-4 text-lg text-gray-600">Analyzing your document...</p>
+                        <p class="text-sm text-gray-500">This may take a few moments</p>
+                    </div>
+                </div>
+
+                <!-- Summary Container -->
+                <div id="summaryContainer" class="hidden mt-8">
+                    <h2 class="text-2xl font-semibold mb-4 text-gray-800">Key Points</h2>
+                    <div class="summary-container bg-gray-50 rounded-lg p-6">
+                        <div id="summaryText" class="prose prose-blue max-w-none text-gray-700 leading-relaxed whitespace-pre-line"></div>
+                    </div>
+                </div>
+
+                <!-- Error Message -->
+                <div id="errorMessage" class="hidden mt-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+                    <div class="flex items-center">
+                        <svg class="h-5 w-5 text-red-400 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                        <span class="text-red-700"></span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Footer -->
+            <div class="mt-8 text-center text-gray-500 text-sm">
+                <p>Powered by advanced AI summarization technology</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const dropzone = document.getElementById('dropzone');
+        const fileInput = document.getElementById('fileInput');
+        const fileInfo = document.getElementById('fileInfo');
+        const fileName = document.getElementById('fileName');
+        const summarizeBtn = document.getElementById('summarizeBtn');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+        const summaryContainer = document.getElementById('summaryContainer');
+        const summaryText = document.getElementById('summaryText');
+        const errorMessage = document.getElementById('errorMessage');
+
+        // Prevent default drag behaviors
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropzone.addEventListener(eventName, preventDefaults, false);
+            document.body.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        // Highlight drop zone when file is dragged over it
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropzone.addEventListener(eventName, highlight, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropzone.addEventListener(eventName, unhighlight, false);
+        });
+
+        function highlight(e) {
+            dropzone.classList.add('border-blue-500', 'bg-blue-50');
+        }
+
+        function unhighlight(e) {
+            dropzone.classList.remove('border-blue-500', 'bg-blue-50');
+        }
+
+        // Handle dropped files
+        dropzone.addEventListener('drop', handleDrop, false);
+
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const file = dt.files[0];
+            handleFile(file);
+        }
+
+        dropzone.addEventListener('click', () => fileInput.click());
+        
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            handleFile(file);
+        });
+
+        function handleFile(file) {
+            if (file && file.type === 'application/pdf') {
+                fileName.textContent = file.name;
+                fileInfo.classList.remove('hidden');
+                summarizeBtn.classList.remove('hidden');
+                errorMessage.classList.add('hidden');
+                summaryContainer.classList.add('hidden');
+            } else {
+                showError('Please upload a PDF file');
+            }
+        }
+
+        summarizeBtn.addEventListener('click', async () => {
+            const file = fileInput.files[0] || null;
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            summarizeBtn.classList.add('hidden');
+            loadingSpinner.classList.remove('hidden');
+            summaryContainer.classList.add('hidden');
+            errorMessage.classList.add('hidden');
+
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+
+                if (response.ok) {
+                    summaryText.textContent = data.summary;
+                    summaryContainer.classList.remove('hidden');
+                    // Scroll to summary
+                    summaryContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                } else {
+                    showError(data.error);
+                }
+            } catch (error) {
+                showError('An error occurred while processing the PDF');
+            } finally {
+                loadingSpinner.classList.add('hidden');
+                summarizeBtn.classList.remove('hidden');
+            }
+        });
+
+        function showError(message) {
+            errorMessage.querySelector('span').textContent = message;
+            errorMessage.classList.remove('hidden');
+            fileInfo.classList.add('hidden');
+            summarizeBtn.classList.add('hidden');
+            summaryContainer.classList.add('hidden');
+        }
+    </script>
+</body>
+</html>
